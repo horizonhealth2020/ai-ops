@@ -1,42 +1,51 @@
 # AI Ops Backend
 
-Multi-tenant AI voice agent backend for field service companies (HVAC, Plumbing, Spa). Acts as a custom LLM provider for [Vapi](https://vapi.ai), handling inbound call routing, dynamic prompt assembly, tool execution, and CRM integration.
+Multi-tenant AI voice agent SaaS backend for blue-collar service businesses (HVAC, plumbing, electrical, spa, restaurant, cleaning). Acts as a custom LLM provider for [Vapi](https://vapi.ai), handling inbound call routing, dynamic prompt assembly, appointment booking, payments, and FSM integration.
 
 ```
-Vapi ──POST /vapi/chat──► This Server ──► LLM (any provider)
-        (OpenAI format)         │              ↕ tool loop
-                                │         CRM (ServiceTitan/stub) · Stripe
-                                ◄── SSE stream ─────────────────────────────
+Caller ──► Vapi ──POST /api/v1/context/inject──► This Server ──► OpenAI
+                         (OpenAI format)              │
+                                                      ├── PostgreSQL (clients, bookings, wallets)
+                                                      ├── Redis (slot holds, config cache)
+                                                      ├── FSM (HouseCall Pro / Jobber / ServiceTitan)
+                                                      ├── Stripe / Square (payments)
+                                                      └── n8n (async post-call workflows)
+                         ◄── SSE stream ──────────────┘
 ```
 
 ## Features
 
-- **Multi-tenant** — each client identified by their inbound Vapi phone number
-- **Provider-agnostic LLM** — OpenAI, Groq, Together AI, Mistral, Ollama, Anthropic, or any OpenAI-compatible endpoint
-- **Dynamic prompt assembly** — industry templates (HVAC/Plumbing/Spa) merged with per-client config
-- **Agentic tool loop** — availability checks, job creation, customer lookup, Stripe payments, warm transfers
-- **ServiceTitan CRM** — OAuth2 authenticated; stub adapter for development
-- **Railway-ready** — `railway.toml` included
+- **Multi-tenant** — each client identified by phone number or metadata `client_id`
+- **Prepaid wallet billing** — tiered per-minute pricing (standard/growth/scale/enterprise)
+- **3-phase soft-lock booking** — check → hold (Redis SETNX) → confirm (FSM verify + PostgreSQL)
+- **Dual payment processors** — Stripe + Square with SMS payment links via Twilio
+- **FSM integrations** — HouseCall Pro, Jobber, ServiceTitan (encrypted credentials per client)
+- **pgvector FAQ search** — semantic similarity search injected into context
+- **Returning caller recognition** — caller history from call logs
+- **Pre-compiled system prompts** — stored in DB, regenerated on config edit
+- **Railway-ready** — `railway.toml` + `Dockerfile` included
 
 ---
 
-## Quick Start (Local)
+## Quick Start
 
 ```bash
 # 1. Clone and install
-git clone https://github.com/YOUR_USERNAME/aiops-backend.git
+git clone <repo-url>
 cd aiops-backend
 npm install
 
 # 2. Set up environment
 cp .env.example .env
-# Edit .env — set DATABASE_URL, VAPI_SECRET, LLM_PROVIDER + LLM_API_KEY, STRIPE_SECRET_KEY
+# Edit .env — set PGBOUNCER_URL, REDIS_URL, VAPI_API_KEY, OPENAI_API_KEY
 
-# 3. Set up database
-psql $DATABASE_URL < schema.sql
-psql $DATABASE_URL < seed.sql
+# 3. Run database migrations
+npm run migrate
 
-# 4. Start
+# 4. Seed demo data
+npm run seed
+
+# 5. Start
 npm run dev
 ```
 
@@ -44,115 +53,67 @@ npm run dev
 
 ## Deploy to Railway
 
-1. Push this repo to GitHub
-2. In [Railway](https://railway.app) → **New Project** → **Deploy from GitHub repo**
-3. Add a **PostgreSQL** addon to the project
-4. Set environment variables (Settings → Variables):
-   - `DATABASE_URL` — auto-filled by Railway PostgreSQL addon
-   - `VAPI_SECRET`, `LLM_PROVIDER`, `LLM_API_KEY`, `LLM_MODEL`, `STRIPE_SECRET_KEY`
-5. Railway detects `railway.toml` automatically — deploy runs `npm install` then `node src/server.js`
-6. After deploy, run the schema and seed against your Railway DB:
-   ```bash
-   railway run psql $DATABASE_URL < schema.sql
-   railway run psql $DATABASE_URL < seed.sql
-   ```
+1. Push to GitHub
+2. Railway → **New Project** → **Deploy from GitHub**
+3. Add **PostgreSQL**, **Redis**, and **PgBouncer** services
+4. Set environment variables (see `.env.example`)
+5. Railway auto-detects `railway.toml`
+6. After deploy: `railway run npm run migrate && railway run npm run seed`
 
 ---
 
 ## Configuring Vapi
 
-1. In Vapi dashboard → **Providers** → **Custom LLM**
-2. Set **URL** to `https://YOUR_RAILWAY_URL/vapi/chat`
-3. Set **Auth** to Bearer token → value = your `VAPI_SECRET`
-4. Set **Webhook URL** to `https://YOUR_RAILWAY_URL/vapi/webhook`
-5. Assign the custom LLM to your assistant or phone number
+1. Vapi dashboard → **Providers** → **Custom LLM**
+2. URL: `https://YOUR_RAILWAY_URL/api/v1/context/inject`
+3. Auth: Bearer token = your `VAPI_API_KEY`
+4. In assistant metadata, set `client_id` to the client's UUID
 
 ---
 
-## LLM Providers
+## Billing
 
-Set `LLM_PROVIDER` + `LLM_API_KEY` + `LLM_MODEL` in your environment:
+Prepaid wallet system with tiered per-minute pricing:
 
-| Provider | LLM_PROVIDER | Example Model |
-|---|---|---|
-| OpenAI | `openai` | `gpt-4o` |
-| Groq | `groq` | `llama-3.3-70b-versatile` |
-| Together AI | `together` | `meta-llama/Llama-3-70b-chat-hf` |
-| Mistral | `mistral` | `mistral-large-latest` |
-| Anthropic | `anthropic` | `claude-opus-4-6` |
-| Ollama (local) | `ollama` | `llama3.2` (+ set `LLM_BASE_URL=http://localhost:11434/v1`) |
-| Custom endpoint | `custom` | your model (+ set `LLM_BASE_URL`) |
+| Tier | Rate |
+|------|------|
+| Standard | $0.40/min |
+| Growth | $0.32/min |
+| Scale | $0.27/min |
+| Enterprise | $0.23/min |
 
----
-
-## Onboarding a New Client
-
-```bash
-curl -X POST https://YOUR_URL/clients \
-  -H "Content-Type: application/json" \
-  -d '{
-    "company_name": "Cool Breeze HVAC",
-    "phone_number": "+15559876543",
-    "industry_vertical": "hvac",
-    "crm_platform": "stub",
-    "timezone": "America/Chicago",
-    "services": [
-      { "service_name": "AC Tune-Up", "base_price": 89.00, "duration_minutes": 60 },
-      { "service_name": "Furnace Repair", "base_price": 149.00, "duration_minutes": 90 }
-    ],
-    "call_config": {
-      "business_hours": {
-        "monday": { "open": "08:00", "close": "17:00" },
-        "tuesday": { "open": "08:00", "close": "17:00" },
-        "wednesday": { "open": "08:00", "close": "17:00" },
-        "thursday": { "open": "08:00", "close": "17:00" },
-        "friday": { "open": "08:00", "close": "17:00" }
-      },
-      "after_hours_behavior": "emergency_transfer",
-      "transfer_number": "+15550000001",
-      "emergency_keywords": ["no heat", "no ac", "gas leak", "carbon monoxide"],
-      "tone_override": "professional and friendly"
-    }
-  }'
-```
-
-In Vapi, assign the phone number `+15559876543` to your assistant with the custom LLM — the backend routes automatically.
+Deducted on call complete. If wallet balance is $0, agent switches to message-only mode.
 
 ---
 
-## Adding a New Industry Vertical
+## API Endpoints
 
-1. Create `src/templates/{vertical}.txt` using `{{variable}}` placeholders
-2. Available variables: `company_name`, `tone`, `services_list`, `emergency_keywords`, `faq_content`, `after_hours_behavior`, `transfer_number`
-3. Add the vertical to the `CHECK` constraint in `schema.sql`
-
----
-
-## Adding a New CRM Adapter
-
-1. Create `src/crm/yourCRM.js` — implement `getAvailability()`, `createJob()`, `lookupCustomer()`
-2. Register it in `src/crm/index.js` `getAdapter()` switch
-3. Set `crm_platform: 'yourcrm'` when creating a client
-
----
-
-## API Reference
-
-| Method | Path | Description |
-|---|---|---|
-| `GET` | `/health` | Health check |
-| `POST` | `/vapi/chat` | Vapi custom LLM endpoint (SSE streaming) |
-| `POST` | `/vapi/webhook` | Vapi post-call webhook |
-| `POST` | `/clients` | Onboard a new client |
-| `GET` | `/clients/:id/config` | Get assembled prompt + raw config |
-| `GET` | `/clients/:id/calls` | Get call history (`?limit=50&offset=0`) |
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| `GET` | `/health` | None | Health check (PG + Redis) |
+| `POST` | `/api/v1/context/inject` | Vapi | Custom LLM endpoint (SSE streaming) |
+| `POST` | `/api/v1/availability/check` | Vapi | Check available slots |
+| `POST` | `/api/v1/availability/hold` | Vapi | Soft-lock a slot (5 min TTL) |
+| `DELETE` | `/api/v1/availability/hold/:id` | Vapi | Release a held slot |
+| `POST` | `/api/v1/booking/create` | Vapi | Create booking with FSM verification |
+| `POST` | `/api/v1/payment/create-intent` | Vapi | Create payment intent + SMS link |
+| `POST` | `/api/v1/call/transfer` | Vapi | Get transfer config |
+| `POST` | `/api/v1/call/complete` | Vapi | Log call, deduct wallet, release holds |
 
 ---
 
-## Demo Clients (from seed.sql)
+## Demo Clients (from seeds)
 
-| Company | Phone | Vertical |
-|---|---|---|
-| Arctic Air HVAC | +15551234567 | hvac |
-| FlowMaster Plumbing | +15552345678 | plumbing |
-| Serenity Day Spa | +15553456789 | spa |
+| Company | Phone | Vertical | FSM |
+|---------|-------|----------|-----|
+| Apex Plumbing & HVAC | +19545550100 | hvac | HouseCall Pro |
+| Zen Day Spa | +13055550200 | spa | Google Calendar |
+| Elite Electrical Solutions | +19545550300 | electrical | Jobber |
+
+---
+
+## Adding a New FSM Integration
+
+1. Create `src/integrations/yourfsm.js` — implement `verifySlotAvailability()`, `createJob()`, `searchCustomer()`
+2. Add to `FSM_ADAPTERS` in `src/services/bookingService.js`
+3. Store encrypted credentials in `client_integrations` table

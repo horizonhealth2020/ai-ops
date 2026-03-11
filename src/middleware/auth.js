@@ -1,20 +1,19 @@
 'use strict';
 
-const config = require('../config');
+const env = require('../config/env');
 
 /**
- * Validates the VAPI_SECRET sent by Vapi as a Bearer token.
- * Applied to all /vapi/* routes.
+ * Validates the Vapi API key sent as a Bearer token or X-Vapi-Secret header.
  */
 function vapiAuth(req, res, next) {
   const authHeader = req.headers['authorization'] || '';
   const secret = req.headers['x-vapi-secret'] || authHeader.replace(/^Bearer\s+/i, '').trim();
 
-  if (!secret || secret !== config.vapiSecret) {
+  if (!secret || secret !== env.vapiApiKey) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
 
   next();
 }
 
-module.exports = vapiAuth;
+module.exports = { vapiAuth };
