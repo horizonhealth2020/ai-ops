@@ -34,6 +34,8 @@ app.use('/api/v1/availability', require('./routes/availability'));
 app.use('/api/v1/booking', require('./routes/booking'));
 app.use('/api/v1/call', require('./routes/call'));
 app.use('/api/v1/payment', require('./routes/payment'));
+app.use('/api/v1/dashboard', require('./routes/dashboard'));
+app.use('/api/v1/onboard', require('./routes/onboard'));
 
 // 404
 app.use((req, res) => {

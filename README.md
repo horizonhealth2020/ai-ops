@@ -99,6 +99,13 @@ Deducted on call complete. If wallet balance is $0, agent switches to message-on
 | `POST` | `/api/v1/payment/create-intent` | Vapi | Create payment intent + SMS link |
 | `POST` | `/api/v1/call/transfer` | Vapi | Get transfer config |
 | `POST` | `/api/v1/call/complete` | Vapi | Log call, deduct wallet, release holds |
+| `POST` | `/api/v1/onboard` | None | Create new client from intake form |
+| `GET` | `/api/v1/dashboard/config` | Clerk | Get full client config |
+| `PUT` | `/api/v1/dashboard/hours` | Clerk | Update business hours |
+| `PUT` | `/api/v1/dashboard/scheduling` | Clerk | Update scheduling config |
+| `PUT` | `/api/v1/dashboard/agent` | Clerk | Update agent persona |
+| `GET` | `/api/v1/dashboard/calls` | Clerk | Paginated call logs (filterable) |
+| `GET` | `/api/v1/dashboard/wallet` | Clerk | Wallet balance + transactions |
 
 ---
 

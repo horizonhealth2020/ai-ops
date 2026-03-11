@@ -21,6 +21,7 @@
     "pgvector": "^0.2.0",
     "stripe": "^14.0.0",
     "twilio": "^5.0.0",
+    "@clerk/express": "^1.0.0",
     "uuid": "^9.0.0"
   },
   "devDependencies": {

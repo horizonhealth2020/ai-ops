@@ -56,7 +56,8 @@ aiops-backend/
 │   │   ├── onboard.js            # /api/v1/onboard (intake form webhook)
 │   │   └── health.js             # /health (Railway healthcheck)
 │   ├── services/
-│   │   ├── promptBuilder.js      # Assemble system prompt from client config
+│   │   ├── promptBuilder.js      # Append caller context to pre-compiled prompt
+│   │   ├── promptCompiler.js    # Compile system prompt from all config fields
 │   │   ├── availabilityService.js # Cache reads + Redis hold logic
 │   │   ├── bookingService.js     # FSM verification + booking creation
 │   │   ├── paymentService.js     # Stripe/Square intent creation
